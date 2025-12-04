@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import random
 from models import Player, create_arts_pool, MartialArt
+from PIL import Image, ImageTk, ImageOps
+import os
 
 ANIM_STEP = 8      # pixels per frame for attack move
 ANIM_DELAY = 20    # ms between frames
@@ -12,6 +14,13 @@ class AnimatedGUI:
     def __init__(self, root):
         self.root = root
         root.title("Caso 3 - Strategy (Animado)")
+        
+        # Ruta a la carpeta assets
+        self.assets_dir = "Caso_3/assets"
+        if not os.path.exists(self.assets_dir):
+            messagebox.showerror("Error", f"No se encuentra la carpeta '{self.assets_dir}'")
+            root.destroy()
+            return
 
         # modelo
         self.pool = create_arts_pool()
@@ -23,18 +32,23 @@ class AnimatedGUI:
         # estado
         self.current_turn = 1  # 1 o 2
         self.is_animating = False
+        
+        # Diccionarios para almacenar imágenes
+        self.images_cache = {}  # Para no cargar la misma imagen múltiples veces
+        self.p1_photo = None
+        self.p2_photo = None
 
         # canvas (escena)
         self.canvas = tk.Canvas(root, width=900, height=300, bg="#1e1e2e")
         self.canvas.grid(row=0, column=0, columnspan=3, padx=10, pady=8)
 
-        # dibujar personajes (rectángulos simples como sprites placeholder)
-        self.p1_sprite = self.canvas.create_rectangle(80, 120, 180, 220, fill="#4CAF50", outline="white", width=2)
-        self.p2_sprite = self.canvas.create_rectangle(720, 120, 820, 220, fill="#F44336", outline="white", width=2)
+        # Dibujar personajes iniciales (placeholders hasta que carguemos imágenes)
+        self.p1_sprite = self.canvas.create_rectangle(130, 170, 130, 170, fill="", outline="")  # Placeholder invisible
+        self.p2_sprite = self.canvas.create_rectangle(770, 170, 770, 170, fill="", outline="")  # Placeholder invisible
 
         # nombres
-        self.canvas.create_text(130, 100, text=self.p1.name, fill="white", font=("Arial", 10, "bold"))
-        self.canvas.create_text(770, 100, text=self.p2.name, fill="white", font=("Arial", 10, "bold"))
+        self.canvas.create_text(130, 100, text=self.p1.name, fill="white", font=("Arial", 10, "bold"), tags="p1_name")
+        self.canvas.create_text(770, 100, text=self.p2.name, fill="white", font=("Arial", 10, "bold"), tags="p2_name")
 
         # health bars background
         self.p1_hp_bg = self.canvas.create_rectangle(40, 230, 220, 250, fill="#333", outline="")
@@ -93,10 +107,89 @@ class AnimatedGUI:
         self.log_text.grid(row=2, column=0, columnspan=3, padx=10, pady=6)
         self._log("Juego animado iniciado. Selecciona técnica y ataca.")
 
-        # inicializar vistas
+        # inicializar vistas y cargar imágenes iniciales
         self.show_p1_attacks()
         self.show_p2_attacks()
         self.update_health_bars()
+
+    # ------------ cargar imagen ----------------
+    def load_image(self, art_name, flip=False):
+        """Carga una imagen desde assets/ y la cachea"""
+        # Mapear nombres de artes marciales a nombres de archivo
+        art_to_file = {
+            "Karate": "karate.png",
+            "Taekwondo": "taekwondo.png", 
+            "Kung Fu": "kung_fu.png",
+            "Muay Thai": "muay_thai.png",
+            "Boxeo": "boxing.png",
+            "Judo": "judo.png",
+            "Aikido": "aikido.png",
+            "Capoeira": "capoeira.png",
+            "Krav Maga": "krav_maga.png",
+            "Kickboxing": "kickboxing.png"
+        }
+        
+        # Algunas artes marciales del modelo no están en la lista de assets proporcionada
+        file_name = art_to_file.get(art_name, f"{art_name.lower().replace(' ', '_')}.png")
+        
+        cache_key = f"{file_name}_{flip}"
+        if cache_key in self.images_cache:
+            return self.images_cache[cache_key]
+        
+        file_path = os.path.join(self.assets_dir, file_name)
+        if not os.path.exists(file_path):
+            # Si no existe la imagen específica, usar una por defecto
+            default_path = os.path.join(self.assets_dir, "default.png")
+            if not os.path.exists(default_path):
+                # Crear una imagen por defecto
+                img = Image.new('RGBA', (100, 100), color='#4CAF50' if not flip else '#F44336')
+                img.putalpha(255)  # Hacerla completamente opaca
+            else:
+                img = Image.open(default_path).convert("RGBA")
+        else:
+            img = Image.open(file_path).convert("RGBA")
+        
+        # Redimensionar a tamaño apropiado
+        img = img.resize((100, 100), Image.LANCZOS)
+        
+        # Voltear horizontalmente si es necesario (para jugador 2)
+        if flip:
+            img = ImageOps.mirror(img)
+        
+        photo = ImageTk.PhotoImage(img)
+        self.images_cache[cache_key] = photo
+        return photo
+
+    # ------------ actualizar imagen del jugador ----------------
+    def update_player_image(self, player_id, art_name):
+        """Cambia la imagen del jugador según el arte marcial seleccionado"""
+        if player_id == 1:
+            # Cargar imagen normal para jugador 1
+            photo = self.load_image(art_name, flip=False)
+            self.p1_photo = photo  # Mantener referencia
+            
+            # Eliminar el sprite antiguo si existe y es una imagen
+            if hasattr(self, 'p1_image_item'):
+                self.canvas.delete(self.p1_image_item)
+            
+            # Crear nuevo sprite con imagen
+            self.p1_image_item = self.canvas.create_image(130, 170, image=photo, tags="p1_image")
+            # Actualizar el sprite para animaciones
+            self.p1_sprite = self.p1_image_item
+            
+        else:  # player_id == 2
+            # Cargar imagen volteada para jugador 2
+            photo = self.load_image(art_name, flip=True)
+            self.p2_photo = photo  # Mantener referencia
+            
+            # Eliminar el sprite antiguo si existe y es una imagen
+            if hasattr(self, 'p2_image_item'):
+                self.canvas.delete(self.p2_image_item)
+            
+            # Crear nuevo sprite con imagen
+            self.p2_image_item = self.canvas.create_image(770, 170, image=photo, tags="p2_image")
+            # Actualizar el sprite para animaciones
+            self.p2_sprite = self.p2_image_item
 
     # ------------ helpers: show attacks ----------------
     def show_p1_attacks(self):
@@ -107,6 +200,8 @@ class AnimatedGUI:
             for a in art.attacks:
                 special = f" [{a.special}]" if a.special else ""
                 self.p1_attacks.insert(tk.END, f"{a.name}: {a.min_power}-{a.max_power}{special}\n")
+            # Actualizar imagen del jugador 1
+            self.update_player_image(1, name)
 
     def show_p2_attacks(self):
         name = self.p2_choice.get()
@@ -116,6 +211,8 @@ class AnimatedGUI:
             for a in art.attacks:
                 special = f" [{a.special}]" if a.special else ""
                 self.p2_attacks.insert(tk.END, f"{a.name}: {a.min_power}-{a.max_power}{special}\n")
+            # Actualizar imagen del jugador 2
+            self.update_player_image(2, name)
 
     # ------------ reassign ---------------
     def reassign(self, player: Player, player_id: int = 1):
@@ -170,27 +267,28 @@ class AnimatedGUI:
     # ------------ animate attack sequence -------------
     def animate_attack(self, attacker, defender, art: MartialArt, hits: int, atk_sprite, def_sprite):
         self.is_animating = True
-        # posicion actual de sprites
+        # posicion actual de sprites (imágenes)
         atk_coords = self.canvas.coords(atk_sprite)
         def_coords = self.canvas.coords(def_sprite)
 
         # calcular dirección: si atk a la izquierda, se mueve a la derecha; si a la derecha, mueve a la izquierda
-        atk_center_x = (atk_coords[0] + atk_coords[2]) / 2
-        def_center_x = (def_coords[0] + def_coords[2]) / 2
+        atk_center_x = atk_coords[0]
+        def_center_x = def_coords[0]
         direction = 1 if def_center_x > atk_center_x else -1
 
         target_x = def_center_x - direction * 140  # posición frontal (justo antes del rival)
+        
         # animar avance
         def advance():
-            nonlocal atk_coords
+            current_x = self.canvas.coords(atk_sprite)[0]
             if direction == 1:
-                if self.canvas.coords(atk_sprite)[2] < target_x:
+                if current_x < target_x:
                     self.canvas.move(atk_sprite, ANIM_STEP, 0)
                     self.root.after(ANIM_DELAY, advance)
                 else:
                     self.show_hit_effects(attacker, defender, art, hits, atk_sprite, def_sprite)
             else:
-                if self.canvas.coords(atk_sprite)[0] > target_x:
+                if current_x > target_x:
                     self.canvas.move(atk_sprite, -ANIM_STEP, 0)
                     self.root.after(ANIM_DELAY, advance)
                 else:
@@ -216,16 +314,24 @@ class AnimatedGUI:
             attack = random.choice(art.attacks)
             # posición del defensor para mostrar número
             def_coords = self.canvas.coords(def_sprite)
-            x = (def_coords[0] + def_coords[2]) / 2
+            x = def_coords[0]
             y = def_coords[1] - 10 - idx*6
             dmg_text = self.canvas.create_text(x, y, text=f"-{random.randint(attack.min_power, attack.max_power)}", fill="yellow", font=("Arial", 12, "bold"))
             # animación de desaparición
             self.root.after(DAMAGE_POP_LIFETIME, lambda: self.canvas.delete(dmg_text))
 
-            # también pulso el borde del sprite (flash)
-            orig_outline = self.canvas.itemcget(def_sprite, "outline")
-            self.canvas.itemconfig(def_sprite, outline="white")
-            self.root.after(120, lambda: self.canvas.itemconfig(def_sprite, outline=orig_outline))
+            # Para imágenes, no podemos usar outline. En su lugar, creamos un borde temporal
+            # Obtenemos las coordenadas de la imagen
+            def_coords = self.canvas.coords(def_sprite)
+            x, y = def_coords[0], def_coords[1]
+            
+            # Creamos un círculo/rectángulo temporal alrededor de la imagen para el efecto de hit
+            if idx % 2 == 0:
+                flash_item = self.canvas.create_oval(x-55, y-55, x+55, y+55, outline="yellow", width=3)
+            else:
+                flash_item = self.canvas.create_rectangle(x-55, y-55, x+55, y+55, outline="yellow", width=3)
+            
+            self.root.after(120, lambda: self.canvas.delete(flash_item))
 
             idx += 1
             # next hit visual
@@ -250,19 +356,20 @@ class AnimatedGUI:
         # mover el atacante de regreso a su inicio
         # determinar original target: left or right area
         if attacker is self.p1:
-            target_x = 80
+            target_x = 130  # Posición original del jugador 1
         else:
-            target_x = 720
+            target_x = 770  # Posición original del jugador 2
 
         def move_back():
-            x1, y1, x2, y2 = self.canvas.coords(atk_sprite)
-            current_center = (x1 + x2) / 2
-            # mover hacia target center
-            if current_center < target_x + 50:
-                self.canvas.move(atk_sprite, ANIM_STEP, 0)
-                self.root.after(ANIM_DELAY, move_back)
-            elif current_center > target_x + 50:
-                self.canvas.move(atk_sprite, -ANIM_STEP, 0)
+            current_x = self.canvas.coords(atk_sprite)[0]
+            diff = abs(current_x - target_x)
+            if diff > 1:  # Si no está en la posición exacta
+                if current_x < target_x:
+                    step = min(ANIM_STEP, diff)
+                    self.canvas.move(atk_sprite, step, 0)
+                else:
+                    step = min(ANIM_STEP, diff)
+                    self.canvas.move(atk_sprite, -step, 0)
                 self.root.after(ANIM_DELAY, move_back)
             else:
                 # finalizado: liberar animación y cambiar turno
@@ -275,16 +382,14 @@ class AnimatedGUI:
     def update_health_bars(self, animated: bool = False):
         # compute widths (max width 180)
         max_w = 180
+        
         def set_bar(fg_item, life):
             target_w = 40 + (life / 200) * max_w  # 40..220 area
             x1, y1, x2, y2 = self.canvas.coords(fg_item)
             if animated:
                 # animate width change
                 def step():
-                    nonlocal x2
                     x1, y1, x2_curr, y2 = self.canvas.coords(fg_item)
-                    curr_w = x2_curr
-                    # compute current width center x2 - approach target
                     if abs(x2_curr - target_w) > 2:
                         new_x2 = x2_curr + (target_w - x2_curr) * 0.25
                         # clamp
@@ -297,10 +402,9 @@ class AnimatedGUI:
                 self.canvas.coords(fg_item, 40, 230, target_w, 250)
 
         set_bar(self.p1_hp_fg, self.p1.life)
+        
         # p2 bar uses different coordinates (680..860)
         def set_bar_p2(fg_item, life):
-            target_w = 860 - ( (200 - life) / 200 * 180 )  # map to 680..860 (we'll set right edge)
-            # But easier: compute left = 680, right = 680 + (life/200)*180
             right = 680 + (life / 200) * 180
             if animated:
                 def step2():
@@ -317,6 +421,7 @@ class AnimatedGUI:
 
         set_bar(self.p1_hp_fg, self.p1.life)
         set_bar_p2(self.p2_hp_fg, self.p2.life)
+        
         # update labels too
         self.turn_label.set(f"Turno: Jugador {self.current_turn} | Vida P1: {self.p1.life}  P2: {self.p2.life}")
 
